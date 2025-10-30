@@ -23,6 +23,7 @@ func RegisterRoutes(r *gin.Engine) {
 	r.PUT("/master-data/:id", controllers.EditMasterData)
 	r.POST("/master-data/:id/post-external", controllers.PostMasterDataExternal)
 	r.GET("/standby", controllers.GetMasterDataAvailableWithForms)
+	r.PUT("/standby/:id", controllers.UpdateMasterData)
 	r.GET("/jobholder", controllers.GetMasterDataAvailableWithFormss)
 	r.GET("/timesheets-customer", controllers.GetMergedData)
 	r.GET("/request-driver", controllers.GetRequestDrivers)

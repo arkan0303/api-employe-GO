@@ -5,6 +5,8 @@ import (
 	models "api-rect-go/modals"
 	"api-rect-go/modals/mysql"
 	"fmt"
+
+	// "strings"
 	"sync"
 )
 
@@ -73,6 +75,178 @@ type pengalamanInfo struct {
 	NamaPerusahaan string
 	UserEkspat     string
 	NegaraAsal     string
+}
+
+// UpdateMasterData updates the master data with all related form data
+// Including photo upload support
+func UpdateMasterData(id int32, updateData map[string]interface{}) error {
+	// 1. Handle photo upload if exists
+	if foto, ok := updateData["foto"].(string); ok && foto != "" {
+		// If the photo is a base64 string, you can handle the upload here
+		// For example, you might want to save it to a file or cloud storage
+		// and update the foto field with the URL or file path
+		// This is a placeholder - implement according to your storage solution
+		// fotoURL, err := savePhotoToStorage(foto)
+		// if err != nil {
+		//     return fmt.Errorf("gagal mengunggah foto: %w", err)
+		// }
+		// updateData["foto"] = fotoURL
+
+		// For now, we'll just pass through the photo value as is
+		// Make sure your client sends the correct URL or file path
+	}
+
+	// Start a transaction
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	// 1. Ambil data master untuk mendapatkan form_1_id
+	var masterData models.TbMasterDataDiri
+	if err := tx.Model(&models.TbMasterDataDiri{}).
+		Where("id = ?", id).
+		First(&masterData).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("gagal mengambil data master: %w", err)
+	}
+
+	// 2. Update TbMasterDataDiri (master data)
+	masterFields := map[string]bool{
+		"nama": true, "employee_id": true, "no_telp": true, "form_1_id": true,
+		"foto": true, "tgl_lahir": true, "status_kawin": true, "status_karyawan": true,
+	}
+	masterUpdate := make(map[string]interface{})
+	for key, value := range updateData {
+		if masterFields[key] {
+			masterUpdate[key] = value
+		}
+	}
+
+	if len(masterUpdate) > 0 {
+		if err := tx.Model(&models.TbMasterDataDiri{}).
+			Where("id = ?", id).
+			Updates(masterUpdate).Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("gagal memperbarui data master: %w", err)
+		}
+	}
+
+	// 2. Update Form1 data (jika ada form_1_id)
+	if form1ID, ok := updateData["form_1_id"].(float64); ok && form1ID > 0 {
+		form1Update := make(map[string]interface{})
+		form1Fields := map[string]bool{
+			"pengalaman_jepang": true,
+		}
+
+		for key, value := range updateData {
+			if form1Fields[key] {
+				form1Update[key] = value
+			}
+		}
+
+		if len(form1Update) > 0 {
+			if err := tx.Model(&models.Form1{}).
+				Where("id = ?", int32(form1ID)).
+				Updates(form1Update).Error; err != nil {
+				tx.Rollback()
+				return fmt.Errorf("gagal memperbarui form 1: %w", err)
+			}
+		}
+	}
+
+	// 3. Update Form2 data
+	// Form2 fields will be handled in the pengalaman kerja section below
+
+	// Handle pengalaman kerja (bisa multiple)
+	for i := 1; i <= 3; i++ {
+		prefix := fmt.Sprintf("pengalaman_%d_", i)
+		pengalamanFields := map[string]string{
+			"nama_perusahaan": fmt.Sprintf("pengalaman_nama_perusahaan%d", i),
+			"negara_asal":     fmt.Sprintf("pengalaman_negara_asal%d", i),
+			"tahun_mulai":     fmt.Sprintf("pengalaman_tahun_mulai%d", i),
+			"tahun_selesai":   fmt.Sprintf("pengalaman_tahun_selesai%d", i),
+			"user_ekspat":     fmt.Sprintf("pengalaman_user_ekspat%d", i),
+		}
+
+		hasPengalaman := false
+		pengalamanData := make(map[string]interface{})
+
+		for field, dbField := range pengalamanFields {
+			key := prefix + field
+			if value, exists := updateData[key]; exists {
+				hasPengalaman = true
+				pengalamanData[dbField] = value
+			}
+		}
+
+		if hasPengalaman {
+			// Update or create form2 record
+			form1ID := masterData.Form1ID // Menggunakan form_1_id dari data master
+			if form1ID == 0 {
+				tx.Rollback()
+				return fmt.Errorf("form_1_id tidak valid untuk data master dengan id %d", id)
+			}
+			pengalamanData["form_1_id"] = form1ID
+			
+			// Cek apakah record sudah ada
+			var existingForm2 models.Form2
+			result := tx.Model(&models.Form2{}).
+				Where("form_1_id = ?", form1ID).
+				First(&existingForm2)
+			
+			if result.Error != nil && result.Error.Error() != "record not found" {
+				tx.Rollback()
+				return fmt.Errorf("gagal memeriksa data form2: %w", result.Error)
+			}
+			
+			if result.RowsAffected > 0 {
+				// Update existing record
+				if err := tx.Model(&models.Form2{}).
+					Where("id = ?", existingForm2.ID).
+					Updates(pengalamanData).Error; err != nil {
+					tx.Rollback()
+					return fmt.Errorf("gagal memperbarui data form2: %w", err)
+				}
+			} else {
+				// Create new record
+				if err := tx.Model(&models.Form2{}).
+					Create(&pengalamanData).Error; err != nil {
+					tx.Rollback()
+					return fmt.Errorf("gagal membuat data form2 baru: %w", err)
+				}
+			}
+		}
+	}
+
+	// 4. Update Form6 data
+	form6Update := make(map[string]interface{})
+	form6Fields := map[string]bool{
+		"pertanyaan_6": true, "kerapihan": true, "kemampuan_bahasa_inggris": true,
+	}
+
+	for key, value := range updateData {
+		if form6Fields[key] {
+			form6Update[key] = value
+		}
+	}
+
+	if len(form6Update) > 0 {
+		// Gunakan form_1_id yang sama dengan yang digunakan di Form2
+		if err := tx.Model(&models.Form6{}).
+			Where("form_1_id = ?", masterData.Form1ID).
+			Updates(form6Update).Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("gagal memperbarui form 6: %w", err)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("gagal melakukan commit transaksi: %w", err)
+	}
+
+	return nil
 }
 
 // fetchRecruitmentIDs dengan query yang lebih efisien
