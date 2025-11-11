@@ -31,4 +31,6 @@ func RegisterRoutes(r *gin.Engine) {
 	r.POST("/request-driver", controllers.CreateRequestDriverController)	
 	r.GET("/iwo/:master_companies_id", controllers.GetIwoByCompanyIDController)
 	r.GET("/users/:iwo_template_id", serviceUserController.GetByIwoTemplateID)
+	r.POST("/users", serviceUserController.CreateUser)
+	r.GET("/timesheets/:bulan/:tahun/:periode", controllers.GetMergedDatass)
 }

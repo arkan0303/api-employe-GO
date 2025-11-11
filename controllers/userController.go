@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	models "api-rect-go/modals/mysql"
 	"api-rect-go/services"
 	"net/http"
 	"strconv"
@@ -36,3 +37,20 @@ func (ctrl *ServiceUserController) GetByIwoTemplateID(c *gin.Context) {
 		"data":    users,
 	})
 }
+
+func (ctrl *ServiceUserController) CreateUser(c *gin.Context) {
+	var user models.ServiceUser
+	if err := c.ShouldBindJSON(&user); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Gagal membuat user", "error": err.Error()})
+		return
+	}
+
+	if err := ctrl.Service.CreateUser(&user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Gagal membuat user", "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User berhasil dibuat"})
+}
+
+

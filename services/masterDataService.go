@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -91,53 +92,102 @@ func CreateMasterData(masterData *models.TbMasterDataDiri) error {
 }
 
 func EditMasterData(id int) error {
+	log.Printf("Memulai EditMasterData untuk ID: %d", id)
 	// ===== 1. Generate employee_id baru dulu =====
-now := time.Now()
-datePart := now.Format("0601")
+	now := time.Now()
+	datePart := now.Format("0601")
+	log.Printf("Membuat employee_id dengan format tanggal: %s", datePart)
 
-var count int64
-db.DB.Model(&models.TbMasterDataDiri{}).
-    Where("employee_id LIKE ?", fmt.Sprintf("DR%s%%", datePart)).
-    Count(&count)
-
-newEmployeeID := fmt.Sprintf("DR%s%03d", datePart, count+1)
-
-
-	// ===== 2. Cek ke tabel tb_job_holder =====
-	var existsJobHolder bool
-	if err := db.DB.Raw("SELECT EXISTS(SELECT 1 FROM tb_job_holder WHERE employee_id = ?)", newEmployeeID).Scan(&existsJobHolder).Error; err != nil {
-		return err
+	var count int64
+	query := db.DB.Model(&models.TbMasterDataDiri{}).
+	    Where("employee_id LIKE ?", fmt.Sprintf("DR%s%%", datePart))
+	
+	log.Printf("Menjalankan query count: %v", query.Statement.SQL.String())
+	
+	if err := query.Count(&count).Error; err != nil {
+	    log.Printf("Error saat menghitung employee_id: %v", err)
+	    return fmt.Errorf("gagal menghitung employee_id: %v", err)
 	}
-	if existsJobHolder {
-		return fmt.Errorf("employee_id sudah ada di tb_job_holder")
-	}
+	log.Printf("Jumlah employee_id yang ada dengan format DR%s: %d", datePart, count)
 
-	// ===== 3. Cek ke tabel tb_master_data_diri =====
-	var existsMaster bool
-	if err := db.DB.Raw("SELECT EXISTS(SELECT 1 FROM tb_master_data_diri WHERE employee_id = ?)", newEmployeeID).Scan(&existsMaster).Error; err != nil {
-		return err
-	}
-	if existsMaster {
-		return fmt.Errorf("employee_id sudah ada di tb_master_data_diri")
-	}
+	// Fungsi untuk memeriksa ketersediaan employee_id di semua sumber
+checkEmployeeID := func(employeeID string) (bool, error) {
+    log.Printf("Memeriksa ketersediaan employee_id: %s", employeeID)
+    
+    // 1. Cek di tb_job_holder
+    var existsJobHolder bool
+    query := "SELECT EXISTS(SELECT 1 FROM tb_job_holder WHERE employee_id = ?)"
+    log.Printf("Menjalankan query: %s dengan parameter: %s", query, employeeID)
+    
+    if err := db.DB.Raw(query, employeeID).Scan(&existsJobHolder).Error; err != nil {
+        log.Printf("Error saat mengecek di tb_job_holder: %v", err)
+        return false, fmt.Errorf("error mengecek di tb_job_holder: %v", err)
+    }
+    
+    log.Printf("Hasil pengecekan di tb_job_holder untuk %s: %v", employeeID, existsJobHolder)
+    if existsJobHolder {
+        return false, nil
+    }
 
-	// ===== 4. Cek ke API eksternal =====
-	resp, err := http.Get("https://backend.sigapdriver.com/api/all_driver")
-	if err != nil {
-		return fmt.Errorf("gagal memanggil API eksternal: %v", err)
-	}
-	defer resp.Body.Close()
+    // 2. Cek di tb_master_data_diri
+    var existsMaster bool
+    query = "SELECT EXISTS(SELECT 1 FROM tb_master_data_diri WHERE employee_id = ?)"
+    log.Printf("Menjalankan query: %s dengan parameter: %s", query, employeeID)
+    
+    if err := db.DB.Raw(query, employeeID).Scan(&existsMaster).Error; err != nil {
+        log.Printf("Error saat mengecek di tb_master_data_diri: %v", err)
+        return false, fmt.Errorf("error mengecek di tb_master_data_diri: %v", err)
+    }
+    
+    log.Printf("Hasil pengecekan di tb_master_data_diri untuk %s: %v", employeeID, existsMaster)
+    if existsMaster {
+        return false, nil
+    }
 
-	var ext ExternalResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ext); err != nil {
-		return fmt.Errorf("gagal decode response API eksternal: %v", err)
-	}
+    // 3. Cek di API eksternal
+    log.Printf("Memeriksa ketersediaan di API eksternal untuk: %s", employeeID)
+    resp, err := http.Get("https://backend.sigapdriver.com/api/all_driver")
+    if err != nil {
+        log.Printf("Gagal memanggil API eksternal: %v", err)
+        return false, fmt.Errorf("gagal memanggil API eksternal: %v", err)
+    }
+    defer resp.Body.Close()
 
-	for _, driver := range ext.Data {
-		if driver.EmployeeID == newEmployeeID {
-			return fmt.Errorf("employee_id sudah ada di API eksternal")
-		}
-	}
+    var ext ExternalResponse
+    if err := json.NewDecoder(resp.Body).Decode(&ext); err != nil {
+        log.Printf("Gagal decode response API: %v", err)
+        return false, fmt.Errorf("gagal decode response API: %v", err)
+    }
+
+    for _, driver := range ext.Data {
+        if driver.EmployeeID == employeeID {
+            log.Printf("Employee ID %s ditemukan di API eksternal", employeeID)
+            return false, nil
+        }
+    }
+
+    log.Printf("Employee ID %s tersedia di semua sumber", employeeID)
+    return true, nil
+}
+// Cari employee_id yang tersedia
+var newEmployeeID string
+for i := 1; i <= 1000; i++ { // Batasi maksimal 1000 percobaan untuk menghindari infinite loop
+    candidateID := fmt.Sprintf("DR%s%03d", datePart, i)
+    
+    available, err := checkEmployeeID(candidateID)
+    if err != nil {
+        return fmt.Errorf("gagal memeriksa ketersediaan employee_id: %v", err)
+    }
+    
+    if available {
+        newEmployeeID = candidateID
+        break
+    }
+    
+    if i == 1000 {
+        return fmt.Errorf("tidak dapat menemukan employee_id yang tersedia")
+    }
+}
 
 	// ===== 5. Ambil data master dan form2 untuk payload API =====
 	var masterData models.TbMasterDataDiri
@@ -185,24 +235,70 @@ newEmployeeID := fmt.Sprintf("DR%s%03d", datePart, count+1)
 		return fmt.Errorf("gagal marshal payload: %v", err)
 	}
 
+	
+	// Kirim data ke API eksternal 1
 	req, err := http.NewRequest("POST", "https://backend.sigapdriver.com/api/create_drivers_recruitment", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return fmt.Errorf("gagal membuat request: %v", err)
-	}
+if err != nil {
+    log.Printf("Gagal membuat request ke API 1: %v", err)
+    return fmt.Errorf("gagal membuat request untuk API external 1: %v", err)
+}
+req.Header.Set("Content-Type", "application/json")
 
-	req.Header.Set("Content-Type", "application/json")
+// Kirim data ke API eksternal 2
+req2, err := http.NewRequest("POST", "https://api-invoice-mysql.sigapdriver.com/api/v1/create-drivers-recruitment", bytes.NewBuffer(payloadBytes))
+if err != nil {
+    log.Printf("Gagal membuat request ke API 2: %v", err)
+    return fmt.Errorf("gagal membuat request untuk API external 2: %v", err)
+}
+req2.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	apiResp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("gagal mengirim data ke API eksternal: %v", err)
-	}
-	defer apiResp.Body.Close()
+	
+	// Kirim request ke API eksternal 1 secara asynchronous
+	go func() {
+    client := &http.Client{Timeout: 30 * time.Second}
+    resp, err := client.Do(req)
+    if err != nil {
+        log.Printf("Gagal mengirim request ke API 1: %v", err)
+        return
+    }
+    defer resp.Body.Close()
+    
+    body, _ := io.ReadAll(resp.Body)
+    log.Printf("Response dari API 1 - Status: %d, Body: %s", resp.StatusCode, string(body))
+}()
+	
+	
+// Kirim request ke API eksternal 1 secara asynchronous
+go func() {
+    client := &http.Client{Timeout: 30 * time.Second}
+    resp, err := client.Do(req)
+    if err != nil {
+        log.Printf("Gagal mengirim request ke API 1: %v", err)
+        return
+    }
+    defer resp.Body.Close()
+    
+    body, _ := io.ReadAll(resp.Body)
+    log.Printf("Response dari API 1 - Status: %d, Body: %s", resp.StatusCode, string(body))
+}()
 
-	if apiResp.StatusCode != http.StatusOK && apiResp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(apiResp.Body)
-		return fmt.Errorf("API eksternal mengembalikan error (status %d): %s", apiResp.StatusCode, string(body))
-	}
+// Kirim request ke API eksternal 2 secara synchronous
+client := &http.Client{Timeout: 30 * time.Second}
+resp, err := client.Do(req2)
+if err != nil {
+    log.Printf("Gagal mengirim request ke API 2: %v", err)
+    return fmt.Errorf("gagal mengirim request ke API 2: %v", err)
+}
+defer resp.Body.Close()
+
+// Baca response body untuk logging
+body, _ := io.ReadAll(resp.Body)
+log.Printf("Response dari API 2 - Status: %d, Body: %s", resp.StatusCode, string(body))
+
+// Periksa status code
+if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+    return fmt.Errorf("API eksternal 2 mengembalikan error (status %d): %s", resp.StatusCode, string(body))
+}
 
 	return nil
 }

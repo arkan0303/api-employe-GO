@@ -6,6 +6,8 @@ import (
 	"api-rect-go/modals/mysql"
 	"fmt"
 
+	// "gorm.io/gorm"
+
 	// "strings"
 	"sync"
 )
@@ -19,6 +21,9 @@ type MasterRingkas struct {
 	Foto       string `json:"foto" gorm:"column:foto"`
 	TglLahir   string `gorm:"column:tgl_lahir" json:"tgl_lahir"`
 	StatusKawin string `gorm:"column:status_kawin" json:"status_kawin"`
+	Domisili    string    `gorm:"column:domisili" json:"domisili"`
+	HomeAddres            string    `gorm:"column:home_addres" json:"home_addres"`
+	Agama                 string    `gorm:"column:agama" json:"agama"`
 }
 
 type FormGabungan struct {
@@ -53,6 +58,11 @@ type FormGabungan struct {
 	Kerapihan                 string        `json:"kerapihan" gorm:"column:kerapihan;not null"`
 	KemampuanBahasaInggris    string        `json:"kemampuanBahasaInggris" gorm:"column:kemampuanBahasaInggris;not null"`
 	StatusRecruitment         string        `json:"status_recruitment"`
+	NamaKotaDomisili          string        `gorm:"column:nama_kota_domisili" json:"nama_kota_domisili"`
+	// New fields
+	Pengalaman               []TbPengalaman           `json:"pengalaman"`
+	Sims                     []TbSim                  `json:"sims"`
+	DataPendukung            *TbPendukungTbMasterDataDiri `json:"data_pendukung,omitempty"`
 }
 
 type form2Data struct {
@@ -75,6 +85,33 @@ type pengalamanInfo struct {
 	NamaPerusahaan string
 	UserEkspat     string
 	NegaraAsal     string
+}
+
+type TbPengalaman struct {
+	ID               int32  `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	TahunAwal        string `gorm:"column:tahun_awal" json:"tahun_awal"`
+	TahunAkhir       string `gorm:"column:tahun_akhir" json:"tahun_akhir"`
+	Perusahaan       string `gorm:"column:perusahaan" json:"perusahaan"`
+	Jabatan         string `gorm:"column:jabatan" json:"jabatan"`
+	IDMasterDataDiri int32  `gorm:"column:id_master_data_diri" json:"id_master_data_diri"`
+}
+
+type TbSim struct {
+	ID               int32  `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	TypeSim          string `gorm:"column:type_sim" json:"type_sim"`
+	NoSim            string `gorm:"column:no_sim" json:"no_sim"`
+	MasaBerlakuSim   string `gorm:"column:masa_berlaku_sim" json:"masa_berlaku_sim"`
+	IDMasterDataDiri int32  `gorm:"column:id_master_data_diri" json:"id_master_data_diri"`
+	FileSim          string `gorm:"column:file_sim" json:"file_sim"`
+}
+
+type TbPendukungTbMasterDataDiri struct {
+	ID               int32  `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	Ktp              string `gorm:"column:ktp" json:"ktp"`
+	Npwp             string `gorm:"column:npwp" json:"npwp"`
+	BahaInggris      string `gorm:"column:baha_inggris" json:"baha_inggris"`
+	Gender           string `gorm:"column:gender" json:"gender"`
+	IDMasterDataDiri int32  `gorm:"column:id_master_data_diri" json:"id_master_data_diri"`
 }
 
 // UpdateMasterData updates the master data with all related form data
@@ -275,21 +312,33 @@ func GetMasterDataAvailableWithForms() ([]FormGabungan, error) {
 		masters        []MasterRingkas
 		recruitmentMap map[int32]bool
 		form1Map       map[int32]bool
+		form1KotaMap   map[int32]string
 		form2Map       map[int32]form2Data
 		form6Map       map[int32]struct {
 			Kerapihan              string
 			KemampuanBahasaInggris string
 			Pertanyaan6            string
 		}
-		err error
+		pengalamanMap  map[int32][]TbPengalaman
+		simsMap        map[int32][]TbSim
+		pendukungMap   map[int32]*TbPendukungTbMasterDataDiri
+		err            error
+	}
+
+	result := queryResults{
+		form2Map:      make(map[int32]form2Data),
+		form1Map:      make(map[int32]bool),
+		form1KotaMap:  make(map[int32]string),
+		recruitmentMap: make(map[int32]bool),
+		pengalamanMap: make(map[int32][]TbPengalaman),
+		simsMap:       make(map[int32][]TbSim),
+		pendukungMap:  make(map[int32]*TbPendukungTbMasterDataDiri),
 	}
 
 	resultChan := make(chan queryResults, 1)
 
 	go func() {
-		var result queryResults
 		var wg sync.WaitGroup
-		
 		// Mutex untuk thread-safe map writes
 		var mu sync.Mutex
 		errorList := make([]error, 0, 4)
@@ -316,10 +365,10 @@ func GetMasterDataAvailableWithForms() ([]FormGabungan, error) {
 			defer wg.Done()
 			var masters []MasterRingkas
 			err := db.DB.Model(&models.TbMasterDataDiri{}).
-				Select("id", "nama", "employee_id", "no_telp", "form_1_id", "foto", "tgl_lahir", "status_kawin").
+				Select("id", "nama", "employee_id", "no_telp", "form_1_id", "foto", "tgl_lahir", "status_kawin", "domisili", "home_addres", "agama").
 				Where("status_karyawan IN (?, ?)", "Temporary", "standby").
 				Scan(&masters).Error
-			
+
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -343,10 +392,10 @@ func GetMasterDataAvailableWithForms() ([]FormGabungan, error) {
 			return
 		}
 
-		// Siapkan form1IDs dengan pre-allocated capacity
-		form1IDs := make([]int32, 0, len(result.masters))
+		// Siapkan masterDataIDs dengan pre-allocated capacity
+		masterDataIDs := make([]int32, 0, len(result.masters))
 		for i := range result.masters {
-			form1IDs = append(form1IDs, result.masters[i].Form1ID)
+			masterDataIDs = append(masterDataIDs, result.masters[i].ID)
 		}
 
 		// Step 2: Fetch all forms secara parallel
@@ -357,15 +406,15 @@ func GetMasterDataAvailableWithForms() ([]FormGabungan, error) {
 		go func() {
 			defer wg.Done()
 			var form1Results []struct {
-				ID               int32 `gorm:"column:id"`
-				PengalamanJepang bool  `gorm:"column:pengalaman_jepang"`
+				ID               int32  `gorm:"column:id"`
+				PengalamanJepang bool   `gorm:"column:pengalaman_jepang"`
+				NamaKotaDomisili string `gorm:"column:nama_kota_domisili"`
 			}
-			
-			err := db.DB.Model(&models.Form1{}).
-				Select("id", "pengalaman_jepang").
-				Where("id IN ?", form1IDs).
-				Scan(&form1Results).Error
-			
+
+			err := db.DB.Table("Form_1").
+				Select("id, pengalaman_jepang, nama_kota_domisili").
+				Find(&form1Results).Error
+
 			if err != nil {
 				mu.Lock()
 				errorList = append(errorList, err)
@@ -373,14 +422,73 @@ func GetMasterDataAvailableWithForms() ([]FormGabungan, error) {
 				return
 			}
 
-			// Build map tanpa lock di setiap iterasi
+			// Build maps without lock on each iteration
 			localMap := make(map[int32]bool, len(form1Results))
+			kotaMap := make(map[int32]string, len(form1Results))
+
+			// Collect all Form1 IDs for batch queries
 			for i := range form1Results {
-				localMap[form1Results[i].ID] = form1Results[i].PengalamanJepang
+				form1ID := form1Results[i].ID
+				localMap[form1ID] = form1Results[i].PengalamanJepang
+				kotaMap[form1ID] = form1Results[i].NamaKotaDomisili
 			}
-			
+
+			// Fetch additional data in parallel
+			var wg2 sync.WaitGroup
+			wg2.Add(3)
+
+			// 1. Fetch Pengalaman
+			go func() {
+				defer wg2.Done()
+				var pengalamanList []TbPengalaman
+				if err := db.DB.Table("tb_pengalaman").Where("id_master_data_diri IN ?", masterDataIDs).Find(&pengalamanList).Error; err == nil {
+					pengalamanMap := make(map[int32][]TbPengalaman)
+					for _, p := range pengalamanList {
+						pengalamanMap[p.IDMasterDataDiri] = append(pengalamanMap[p.IDMasterDataDiri], p)
+					}
+					mu.Lock()
+					result.pengalamanMap = pengalamanMap
+					mu.Unlock()
+				}
+			}()
+
+			// 2. Fetch SIMs
+			go func() {
+				defer wg2.Done()
+				var simsList []TbSim
+				if err := db.DB.Table("tb_sim").Where("id_master_data_diri IN ?", masterDataIDs).Find(&simsList).Error; err == nil {
+					simsMap := make(map[int32][]TbSim)
+					for _, s := range simsList {
+						simsMap[s.IDMasterDataDiri] = append(simsMap[s.IDMasterDataDiri], s)
+					}
+					mu.Lock()
+					result.simsMap = simsMap
+					mu.Unlock()
+				}
+			}()
+
+			// 3. Fetch Data Pendukung
+			go func() {
+				defer wg2.Done()
+				var pendukungList []TbPendukungTbMasterDataDiri
+				if err := db.DB.Table("tb_pendukung_tb_master_data_diri").Where("id_master_data_diri IN ?", masterDataIDs).Find(&pendukungList).Error; err == nil {
+					pendukungMap := make(map[int32]*TbPendukungTbMasterDataDiri)
+					for i := range pendukungList {
+						pendukungMap[pendukungList[i].IDMasterDataDiri] = &pendukungList[i]
+					}
+					mu.Lock()
+					result.pendukungMap = pendukungMap
+					mu.Unlock()
+				}
+			}()
+
+			// Wait for all additional queries to complete
+			wg2.Wait()
+
+			// Update the main maps
 			mu.Lock()
 			result.form1Map = localMap
+			result.form1KotaMap = kotaMap
 			mu.Unlock()
 		}()
 
@@ -425,7 +533,7 @@ func GetMasterDataAvailableWithForms() ([]FormGabungan, error) {
 					"pengalaman_negara_asal2", "pengalaman_tahun_mulai3", "pengalaman_tahun_selesai3",
 					"pengalaman_nama_perusahaan3", "pengalaman_user_ekspat3", "pengalaman_negara_asal3",
 					"no_ktp", "no_npwp").
-				Where("form_1_id IN ?", form1IDs).
+				Where("form_1_id IN (SELECT form_1_id FROM tb_master_data_diri WHERE id IN ?)", masterDataIDs).
 				Scan(&form2Results).Error
 			
 			if err != nil {
@@ -474,7 +582,7 @@ func GetMasterDataAvailableWithForms() ([]FormGabungan, error) {
 			
 			err := db.DB.Model(&models.Form6{}).
 				Select("form_1_id", "kerapihan", "kemampuanBahasaInggris", "pertanyaan_6").
-				Where("form_1_id IN ?", form1IDs).
+				Where("form_1_id IN (SELECT form_1_id FROM tb_master_data_diri WHERE id IN ?)", masterDataIDs).
 				Scan(&form6Results).Error
 			
 			if err != nil {
@@ -532,6 +640,7 @@ func GetMasterDataAvailableWithForms() ([]FormGabungan, error) {
 		form1 := queryResult.form1Map[master.Form1ID]
 		form2 := queryResult.form2Map[master.Form1ID]
 		form6 := queryResult.form6Map[master.Form1ID]
+		namaKotaDomisili := queryResult.form1KotaMap[master.Form1ID]
 
 		// Determine recruitment status (inline tanpa variable temp)
 		statusRecruitment := "belum_ada"
@@ -539,9 +648,29 @@ func GetMasterDataAvailableWithForms() ([]FormGabungan, error) {
 			statusRecruitment = "sudah_ada"
 		}
 
+		// Get additional data
+		var pengalaman []TbPengalaman
+		if p, exists := queryResult.pengalamanMap[master.ID]; exists {
+			pengalaman = p
+		}
+		
+		var sims []TbSim
+		if s, exists := queryResult.simsMap[master.ID]; exists {
+			sims = s
+		}
+		
+		var dataPendukung *TbPendukungTbMasterDataDiri
+		if dp, exists := queryResult.pendukungMap[master.ID]; exists {
+			dataPendukung = dp
+		}
+
 		results = append(results, FormGabungan{
 			Master:                    *master,
 			PengalamanJepang:          form1,
+			NamaKotaDomisili:          namaKotaDomisili,
+			Pengalaman:                pengalaman,
+			Sims:                      sims,
+			DataPendukung:             dataPendukung,
 			Agama:                     form2.Agama,
 			PendidikanTerakhir:        form2.PendidikanTerakhir,
 			SimANomor:                 form2.SimANomor,
