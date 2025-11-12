@@ -82,3 +82,27 @@ sdp.employee_id AS employee_id_pengganti,
 
 	return results, nil
 }
+
+// DeleteServiceReplacement performs a soft delete by setting status to 0
+func DeleteServiceReplacement(id int64) error {
+    dbMySQL := db.DBMySQL
+
+    // First check if the record exists
+    var count int64
+    err := dbMySQL.Table("service_replacements").Where("id = ?", id).Count(&count).Error
+    if err != nil {
+        return fmt.Errorf("failed to check record existence: %v", err)
+    }
+
+    if count == 0 {
+        return fmt.Errorf("record with id %d not found", id)
+    }
+
+    // Soft delete by updating status to 0 instead of actually deleting
+    err = dbMySQL.Exec("UPDATE service_replacements SET status = 0 WHERE id = ?", id).Error
+    if err != nil {
+        return fmt.Errorf("failed to delete service replacement: %v", err)
+    }
+
+    return nil
+}

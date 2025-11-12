@@ -28,6 +28,8 @@ func RegisterRoutes(r *gin.Engine) {
 	r.GET("/timesheets-customer", controllers.GetMergedData)
 	r.GET("/request-driver", controllers.GetRequestDrivers)
 	r.GET("/cuti-driver", controllers.GetReplacementData)
+	r.DELETE("/cuti-driver/:id", controllers.DeleteReplacementData)
+
 	r.POST("/request-driver", controllers.CreateRequestDriverController)	
 	r.GET("/iwo/:master_companies_id", controllers.GetIwoByCompanyIDController)
 	r.GET("/users/:iwo_template_id", serviceUserController.GetByIwoTemplateID)
