@@ -28,18 +28,24 @@ type ServiceUsers struct {
 }
 
 func (s *ServiceUserService) GetByIwoTemplateID(iwoTemplateID int32) ([]ServiceUsers, error) {
-	var users []ServiceUsers
+    var users []ServiceUsers
 
-	err := s.DB.
-		Select("id, full_name").
-		Where("iwo_templates_id = ?", iwoTemplateID).
-		Find(&users).Error
+    subQuery := s.DB.
+        Table("service_details").
+        Select("service_users_id")
 
-	if err != nil {
-		return nil, err
-	}
+    err := s.DB.
+        Table("service_users").
+        Select("id, full_name").
+        Where("iwo_templates_id = ?", iwoTemplateID).
+        Where("id NOT IN (?)", subQuery).
+        Find(&users).Error
 
-	return users, nil
+    if err != nil {
+        return nil, err
+    }
+
+    return users, nil
 }
 
 

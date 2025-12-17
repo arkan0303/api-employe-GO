@@ -17,6 +17,7 @@ func RegisterRoutes(r *gin.Engine) {
 	r.POST("/mobils", controllers.CreateMobil)
 
 	r.GET("/form5", controllers.GetForm5)
+	r.GET("detail-data", controllers.GetDataDetailPelamar)
 
 	r.GET("/master-data", controllers.GetMasterData)
 	r.POST("/master-data", controllers.CreateMasterData)
@@ -25,6 +26,7 @@ func RegisterRoutes(r *gin.Engine) {
 	r.GET("/standby", controllers.GetMasterDataAvailableWithForms)
 	r.PUT("/standby/:id", controllers.UpdateMasterData)
 	r.GET("/jobholder", controllers.GetMasterDataAvailableWithFormss)
+	r.GET("/daily", controllers.GetMasterDataDaily)
 	r.GET("/timesheets-customer", controllers.GetMergedData)
 	r.GET("/request-driver", controllers.GetRequestDrivers)
 	r.GET("/cuti-driver", controllers.GetReplacementData)
@@ -35,4 +37,10 @@ func RegisterRoutes(r *gin.Engine) {
 	r.GET("/users/:iwo_template_id", serviceUserController.GetByIwoTemplateID)
 	r.POST("/users", serviceUserController.CreateUser)
 	r.GET("/timesheets/:bulan/:tahun/:periode", controllers.GetMergedDatass)
+	r.GET("/data-job-holder-for-deposit-finance", controllers.GetDataJobHolderForDepositFinance)
+	r.PUT(
+	"/daily/:id_status_data_diri",
+	controllers.UpdateByStatusDataDiri,)
+
+	r.GET("/company", controllers.GetComapny)
 }

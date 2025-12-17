@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-type MasterRingkass struct {
+type MasterRingkasss struct {
 	ID         int32  `json:"id" gorm:"column:id;primaryKey;autoIncrement:true"`
 	Nama       string `json:"nama" gorm:"column:nama"`
 	EmployeeID string `json:"employee_id" gorm:"column:employee_id"`
@@ -24,8 +24,8 @@ type MasterRingkass struct {
 	HomeAddres            string    `gorm:"column:home_addres" json:"home_addres"`
 }
 
-type FormGabungann struct {
-	Master                    MasterRingkass `json:"master"`
+type FormGabungannn struct {
+	Master	                  MasterRingkasss `json:"master"`
 	PengalamanJepang          bool          `json:"pengalaman_jepang"`
 	PendidikanTerakhir        string        `json:"pendidikan_terakhir"`
 	Agama                     string        `json:"agama"`
@@ -65,7 +65,7 @@ type FormGabungann struct {
 }
 
 // Struct helper untuk Form2 data
-type form2Dataa struct {
+type form2Dataaa struct {
 	Agama              string
 	PendidikanTerakhir string
 	SimANomor          string
@@ -74,12 +74,12 @@ type form2Dataa struct {
 	SimB1MasaBerlaku   string
 	SimB2Nomor         string
 	SimB2MasaBerlaku   string
-	PengalamanData     [3]pengalamanInfoo
+	PengalamanData     [3]pengalamanInfooo
 	NoKtp              string
 	NoNpwp             string
 }
 
-type pengalamanInfoo struct {
+type pengalamanInfooo struct {
 	TahunMulai     int32
 	TahunSelesai   int32
 	NamaPerusahaan string
@@ -88,17 +88,18 @@ type pengalamanInfoo struct {
 }
 
 // Pengalaman dari tabel tb_pengalaman (dipisahkan dari Form2)
-type PengalamanItem struct {
+type PengalamanItemm struct {
 	TahunMulai   int32  `json:"tahun_mulai"`
 	TahunSelesai int32  `json:"tahun_selesai"`
 	Perusahaan   string `json:"perusahaan"`
 	Jabatan      string `json:"jabatan"`
 }
-func GetMasterDataAvailableWithFormss() ([]FormGabungann, error) {
+
+func GetMasterDataDaily() ([]FormGabungannn, error) {
 	var (
-		masters        []MasterRingkass
+		masters        []MasterRingkasss
 		form1Map       map[int32]bool
-		form2Map       map[int32]form2Dataa
+		form2Map       map[int32]form2Dataaa
 		form6Map       map[int32]struct {
 			Kerapihan              string
 			KemampuanBahasaInggris string
@@ -117,7 +118,7 @@ func GetMasterDataAvailableWithFormss() ([]FormGabungann, error) {
 	// Fetch master data synchronously so we can safely build masterIDs before spawning other goroutines
 	if err := db.DB.Model(&models.TbMasterDataDiri{}).
 		Select("id", "nama", "employee_id", "no_telp", "form_1_id", "foto", "tgl_lahir", "status_kawin", "agama", "bank", "norek", "domisili", "home_addres").
-		Where("status_karyawan = ?", "job holder").
+		Where("status_karyawan = ?", "daily").
 		Scan(&masters).Error; err != nil {
 		return nil, fmt.Errorf("master data fetch failed: %w", err)
 	}
@@ -206,9 +207,9 @@ func GetMasterDataAvailableWithFormss() ([]FormGabungann, error) {
 			return
 		}
 
-		m := make(map[int32]form2Dataa, len(form2Results))
+		m := make(map[int32]form2Dataaa, len(form2Results))
 		for _, f := range form2Results {
-			m[f.Form1ID] = form2Dataa{
+			m[f.Form1ID] = form2Dataaa{
 				Agama:              f.Agama,
 				PendidikanTerakhir: f.PendidikanTerakhir,
 				SimANomor:          f.SimANomor,
@@ -217,7 +218,7 @@ func GetMasterDataAvailableWithFormss() ([]FormGabungann, error) {
 				SimB1MasaBerlaku:   f.SimB1MasaBerlaku,
 				SimB2Nomor:         f.SimB2Nomor,
 				SimB2MasaBerlaku:   f.SimB2MasaBerlaku,
-				PengalamanData: [3]pengalamanInfoo{
+				PengalamanData: [3]pengalamanInfooo{
 					{f.PengalamanTahunMulai, f.PengalamanTahunSelesai, f.PengalamanNamaPerusahaan, f.PengalamanUserEkspat, f.PengalamanNegaraAsal},
 					{f.PengalamanTahunMulai2, f.PengalamanTahunSelesai2, f.PengalamanNamaPerusahaan2, f.PengalamanUserEkspat2, f.PengalamanNegaraAsal2},
 					{f.PengalamanTahunMulai3, f.PengalamanTahunSelesai3, f.PengalamanNamaPerusahaan3, f.PengalamanUserEkspat3, f.PengalamanNegaraAsal3},
@@ -344,7 +345,7 @@ func GetMasterDataAvailableWithFormss() ([]FormGabungann, error) {
 	}
 
 	// ===== STEP 4: Gabungkan Data dengan Validasi yang Ketat =====
-	results := make([]FormGabungann, 0, len(masters))
+	results := make([]FormGabungannn, 0, len(masters))
 	
 	// Counter untuk tracking
 	var sudahAda, belumAda int
@@ -375,16 +376,9 @@ func GetMasterDataAvailableWithFormss() ([]FormGabungann, error) {
 				Jabatan:      expList[i].Jabatan,
 			})
 		}
-		employeeID := master.EmployeeID
-if employeeID == "" {
-	if job, ok := jobHolderMap[master.ID]; ok {
-		employeeID = job.EmployeeID
-	}
-}
-master.EmployeeID = employeeID
 
-		results = append(results, FormGabungann{
-			Master:                    master,
+		results = append(results, FormGabungannn{
+			Master:                  	master,
 			PengalamanJepang:          form1,
 			Agama:                     form2.Agama,
 			PendidikanTerakhir:        form2.PendidikanTerakhir,

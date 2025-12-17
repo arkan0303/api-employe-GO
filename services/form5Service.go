@@ -149,13 +149,15 @@ import (
 		// 8. Gabungkan semua data
 		results := make([]Form5AndForm2AndForm6AndForm4AndForm1, 0, len(form5List))
 		for _, f5 := range form5List {
-			form1, exists := form1Map[f5.Form1ID]
-			form2, exists2 := form2Map[f5.Form1ID]
-			form4, exists4 := form4Map[f5.Form1ID]
-			form6, exists6 := form6Map[f5.Form1ID]
-			if !exists || !exists2 || !exists4 || !exists6 {
-				continue
-			}
+			form1, ok1 := form1Map[f5.Form1ID]
+if !ok1 {
+    continue // Form1 WAJIB
+}
+
+form2 := form2Map[f5.Form1ID] // optional
+form4 := form4Map[f5.Form1ID] // optional
+form6 := form6Map[f5.Form1ID] // optional (boleh kosong)
+
 
 			// ✅ Cek dari map (super cepat O(1))
 			sudahAda := namaExistsMap[form1.NamaLengkap]
